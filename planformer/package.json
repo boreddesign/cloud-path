@@ -1,0 +1,28 @@
+{
+  "name": "planformer",
+  "version": "0.1.0",
+  "description": "Lightweight geometry and toolpath backend for converting floorplan data into offset curves, layers, and G-code",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test:offset": "npx tsx test-offset.ts"
+  },
+  "keywords": [
+    "geometry",
+    "toolpath",
+    "g-code",
+    "floorplan",
+    "3d-printing"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  }
+}

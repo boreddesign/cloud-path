@@ -1,0 +1,125 @@
+.file-drop-zone {
+  border: 2px dashed #1a1a1a;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #000300;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-drop-zone:hover {
+  border-color: #2191fb;
+  background: #0a0a0a;
+}
+
+.file-drop-zone.dragging {
+  border-color: #2191fb;
+  background: #0a0a0a;
+  border-style: solid;
+}
+
+.file-drop-zone.has-file {
+  border-color: #2191fb;
+  background: #0a0a0a;
+}
+
+.drop-zone-label {
+  width: 100%;
+  cursor: pointer;
+  display: block;
+}
+
+.drop-zone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #FFFEFF;
+  opacity: 0.6;
+}
+
+.drop-zone-content svg {
+  color: #FFFEFF;
+  opacity: 0.4;
+  transition: color 0.2s;
+}
+
+.file-drop-zone:hover .drop-zone-content svg {
+  color: #007acc;
+}
+
+.drop-zone-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drop-zone-text strong {
+  color: #FFFEFF;
+  font-size: 16px;
+}
+
+.drop-zone-text .hint {
+  color: #FFFEFF;
+  opacity: 0.5;
+  font-size: 13px;
+}
+
+.file-loaded {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #2191fb;
+  justify-content: center;
+}
+
+.file-loaded svg {
+  flex-shrink: 0;
+}
+
+.file-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.file-name {
+  color: #FFFEFF;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.file-status {
+  color: #2191fb;
+  font-size: 12px;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #007acc;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #1a1a1a;
+  border-top-color: #2191fb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
