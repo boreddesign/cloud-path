@@ -20,7 +20,7 @@ import type { Toolpath, GCodeConfig } from '../types';
  * const config = {
  *   printFeedRate: 1200,
  *   travelFeedRate: 3000,
- *   layerHeight: 0.2
+ *   layerHeight: 1
  * };
  * const gcode = generateGCode(toolpaths, config);
  * ```

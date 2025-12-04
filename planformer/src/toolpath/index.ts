@@ -15,7 +15,7 @@ import type { Layer, Toolpath } from '../types';
  * 
  * @example
  * ```typescript
- * const layers = [{ z: 0, thickness: 0.2, polygons: [[[0,0], [10,0]]], index: 0 }];
+ * const layers = [{ z: 0, thickness: 1, polygons: [[[0,0], [10,0]]], index: 0 }];
  * const toolpaths = generateToolpath(layers);
  * ```
  */

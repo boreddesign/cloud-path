@@ -12,8 +12,21 @@ import type { Point2D } from '../types';
  * @returns Distance between the points
  */
 export function distance(p1: Point2D, p2: Point2D): number {
-  // TODO: Implement distance calculation
-  return 0;
+  const dx = p2[0] - p1[0];
+  const dy = p2[1] - p1[1];
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Checks if two points are equal within a tolerance
+ * 
+ * @param p1 - First point [x, y]
+ * @param p2 - Second point [x, y]
+ * @param tolerance - Tolerance for comparison (default: 0.001)
+ * @returns True if points are equal within tolerance
+ */
+export function pointsEqual(p1: Point2D, p2: Point2D, tolerance: number = 0.001): boolean {
+  return distance(p1, p2) < tolerance;
 }
 
 /**
@@ -23,8 +36,11 @@ export function distance(p1: Point2D, p2: Point2D): number {
  * @returns Normalized vector [x, y]
  */
 export function normalize(v: Point2D): Point2D {
-  // TODO: Implement vector normalization
-  return [0, 0];
+  const len = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+  if (len < 0.0001) {
+    return [0, 0];
+  }
+  return [v[0] / len, v[1] / len];
 }
 
 /**
@@ -59,8 +75,7 @@ export function crossProduct(v1: Point2D, v2: Point2D): number {
  * @returns Result vector [x, y]
  */
 export function subtract(v1: Point2D, v2: Point2D): Point2D {
-  // TODO: Implement vector subtraction
-  return [0, 0];
+  return [v1[0] - v2[0], v1[1] - v2[1]];
 }
 
 /**
@@ -83,8 +98,7 @@ export function add(v1: Point2D, v2: Point2D): Point2D {
  * @returns Scaled vector [x, y]
  */
 export function multiply(v: Point2D, scalar: number): Point2D {
-  // TODO: Implement scalar multiplication
-  return [0, 0];
+  return [v[0] * scalar, v[1] * scalar];
 }
 
 /**

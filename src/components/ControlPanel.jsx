@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 import { parseCADFile, validateGeometryType } from '../utils/cadParser'
-import { pathToWalls, computeOffsets, offsetCurvesToPath } from '../utils/wallOffset'
+import { pathToWalls, segmentsToWalls, computeOffsets, offsetCurvesToPath } from '../utils/wallOffset'
 import FileDropZone from './FileDropZone'
 import './ControlPanel.css'
 
@@ -10,19 +11,26 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
   const [pathFileName, setPathFileName] = useState(null)
   const [pathValidation, setPathValidation] = useState(null)
   const [showOffset, setShowOffset] = useState(false)
-  const [wallThickness, setWallThickness] = useState(12) // Default: 12" (1ft)
-  const [isLoadBearing, setIsLoadBearing] = useState(true)
-  const [layerHeight, setLayerHeight] = useState(0.2) // Default: 0.2" per layer
+  const [wallThickness, setWallThickness] = useState(12)
+  // Layer height is handled by backend, using default value of 1"
+  const layerHeight = 1 // Default: 1" per layer (handled by backend)
   const [wallHeight, setWallHeight] = useState(120) // Default: 120" (10ft)
-  const [previewMode, setPreviewMode] = useState(true) // Performance mode: fewer layers
-
-  // Debug: Log state changes
+  // Preview mode and load-bearing are handled by backend, using default values
+  const previewMode = true // Default: preview mode enabled (handled by backend)
+  const isLoadBearing = true // Default: load-bearing walls (handled by backend)
+  
+  // Internal state for immediate UI updates
+  const [displayWallHeight, setDisplayWallHeight] = useState(120)
+  
+  // Debounced callbacks to update actual layer config (triggers expensive recalculations)
+  const debouncedSetWallHeight = useDebouncedCallback((value) => {
+    setWallHeight(value)
+  }, 300)
+  
+  // Sync display state with debounced state
   useEffect(() => {
-    console.log('=== STATE UPDATE ===')
-    console.log('Path:', loadedPath ? `${loadedPath.length} points` : 'null')
-    console.log('Path file:', pathFileName || 'none')
-    console.log('Button enabled:', !!loadedPath)
-  }, [loadedPath, pathFileName])
+    setDisplayWallHeight(wallHeight)
+  }, [wallHeight])
 
   const handlePathFile = useCallback(async (fileContent, fileName, errorMessage) => {
     setInputError(null)
@@ -41,61 +49,112 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
     }
 
     try {
-      console.log('Parsing path file:', fileName)
-      const path = await parseCADFile(fileContent, fileName, 'path')
-      console.log('Path parsed, validating...', path)
-      // validateGeometryType may convert 2D to 3D, so use the returned value
-      const validatedPath = validateGeometryType(path, 'path')
-      console.log('Path validated, setting state...', validatedPath.length, 'points')
-      setLoadedPath(validatedPath)
+      const result = await parseCADFile(fileContent, fileName, 'path')
+      
+      // Check if we got segments or points
+      if (result && result.isSegments) {
+        // Store segments directly
+        setLoadedPath({ segments: result.segments, isSegments: true })
+      } else {
+        // Legacy format - validate and store points
+        const path = result?.points || result
+        validateGeometryType(path, 'path') // Validate but don't modify
+        setLoadedPath({ points: path, isSegments: false })
+      }
       setPathFileName(fileName)
-      console.log('Path state set. loadedPath:', validatedPath !== null, 'points:', validatedPath.length)
     } catch (error) {
-      console.error('Path file error:', error)
       setInputError(`Path file error: ${error.message}`)
       setLoadedPath(null)
       setPathFileName(null)
     }
   }, [])
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    console.log('[ControlPanel] Generate button clicked')
     setInputError(null)
     
     if (!loadedPath) {
+      console.log('[ControlPanel] No path loaded')
       setInputError('Please load a path file first')
       return
     }
 
+    console.log('[ControlPanel] Starting generation:', {
+      showOffset,
+      isSegments: loadedPath.isSegments,
+      hasOnOffsetPathChange: !!onOffsetPathChange,
+      hasOnPathChange: !!onPathChange
+    })
+
     try {
       if (showOffset) {
-        // Convert path (centerline) to walls and compute offset
-        const walls = pathToWalls(loadedPath, {
-          thickness: wallThickness,
-          isLoadBearing: isLoadBearing,
-          height: 120 // Default 10ft
-        })
+        console.log('[ControlPanel] Offset mode enabled')
+        let segments
+        let originalPathForDisplay
         
-        // Compute offset curves using Planformer algorithm
-        const offsetCurves = computeOffsets(walls)
+        // Check if we have segments (new format) or points (legacy format)
+        if (loadedPath.isSegments) {
+          console.log('[ControlPanel] Using segments directly')
+          segments = loadedPath.segments
+          originalPathForDisplay = loadedPath.segments
+        } else {
+          console.log('[ControlPanel] Converting points to segments')
+          // Legacy format - convert points to segments
+          segments = pathToWalls(loadedPath.points)
+          originalPathForDisplay = loadedPath.points
+        }
+        
+        console.log('[ControlPanel] Segments for offset:', segments.length)
+        
+        // Calculate offset distance: (thickness - 2") / 2
+        const offsetDistance = (wallThickness - 2) / 2
+        console.log('[ControlPanel] Offset distance:', offsetDistance)
+        
+        // Compute offset curves with new simplified algorithm
+        // 1. Join segments → 2. Offset → 3. Fillet corners → 4. Output
+        console.log('[ControlPanel] Computing offsets...')
+        const offsetCurves = computeOffsets(segments, {
+          offsetDistance: offsetDistance,
+          filletRadius: 1.0 // 1" fillet radius for corners
+        })
+        console.log('[ControlPanel] Offset curves computed:', offsetCurves.length)
         
         if (offsetCurves.length > 0 && onOffsetPathChange) {
+          console.log('[ControlPanel] Calling onOffsetPathChange with:', {
+            offsetCurves: offsetCurves.length,
+            originalPathLength: originalPathForDisplay?.length,
+            layerConfig: { layerHeight, wallHeight, previewMode }
+          })
           // Pass both original path and all offset curves for lofting
           // Each offset curve will be lofted separately, plus the original path
           // Also pass layer configuration for stacking
-          onOffsetPathChange(offsetCurves, loadedPath, {
+          onOffsetPathChange(offsetCurves, originalPathForDisplay, {
             layerHeight,
             wallHeight,
             previewMode
           })
+          console.log('[ControlPanel] onOffsetPathChange called')
         } else {
+          console.log('[ControlPanel] Fallback: using regular path change', {
+            offsetCurvesLength: offsetCurves.length,
+            hasOnOffsetPathChange: !!onOffsetPathChange
+          })
           // Fallback to original path if offset computation fails
-          onPathChange(loadedPath)
+          onPathChange(originalPathForDisplay)
         }
       } else {
+        console.log('[ControlPanel] Regular mode (no offset)')
         // No offset: loft the original path directly
-        onPathChange(loadedPath)
+        // Pass segments or points directly (components handle conversion)
+        const pathForDisplay = loadedPath.isSegments 
+          ? loadedPath.segments
+          : loadedPath.points
+        console.log('[ControlPanel] Calling onPathChange with path length:', pathForDisplay?.length)
+        onPathChange(pathForDisplay)
+        console.log('[ControlPanel] onPathChange called')
       }
     } catch (error) {
+      console.error('[ControlPanel] Generation error:', error)
       setInputError(`Generation error: ${error.message}`)
     }
   }
@@ -104,20 +163,12 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
     <div className="control-panel">
       <div className="panel-header">
         <h2>CAD Loft Visualizer</h2>
-        <p className="subtitle">Define a 3D path to generate lofted geometry with the default bead profile</p>
+        <p className="subtitle">Define a 3D path to generate lofted geometry</p>
       </div>
 
       <div className="panel-content">
         <div className="input-section">
-          <h3>Default Profile</h3>
-          <p className="input-hint">Using default bead profile (2" wide × 1" tall)</p>
-          <div className="file-status-indicator" style={{ marginTop: '10px' }}>
-            ✓ profile-bead.json loaded
-          </div>
-        </div>
-
-        <div className="input-section">
-          <h3>2D/3D Path CAD File (Wall Centerline)</h3>
+          <h3>2D/3D Wall Centerline</h3>
           <p className="input-hint">Drop or select a DXF file containing 2D or 3D path geometry (centerline of wall)</p>
           <FileDropZone
             onFileLoad={handlePathFile}
@@ -145,7 +196,7 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
               <span>Enable offset (loft along offset path)</span>
             </label>
             <div style={{ marginLeft: '24px', fontSize: '0.85em', color: '#FFFEFF', opacity: 0.6, marginTop: '5px' }}>
-              When enabled: offset path is computed and lofted with bead profile
+              When enabled: offset path is computed and lofted with the default profile
             </div>
             
             {showOffset && (
@@ -164,42 +215,11 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
                     style={{ width: '100px', padding: '5px' }}
                   />
                   <span style={{ marginLeft: '8px', fontSize: '0.9em', color: '#FFFEFF', opacity: 0.6 }}>
-                    Default: 12" (1ft) for load-bearing, 8" for non-load-bearing
+                    Default: 12" (1ft)
                   </span>
-                </div>
-                
-                <div>
-                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={isLoadBearing}
-                      onChange={(e) => setIsLoadBearing(e.target.checked)}
-                      style={{ marginRight: '8px' }}
-                    />
-                    <span>Load-bearing wall</span>
-                  </label>
-                  <div style={{ marginLeft: '24px', marginTop: '5px', fontSize: '0.85em', color: '#FFFEFF', opacity: 0.6 }}>
-                    Offset: (thickness - 2") / 2 = {(wallThickness - 2) / 2}" 
-                    {!isLoadBearing && ' (non-load-bearing walls are not offset)'}
+                  <div style={{ marginTop: '5px', fontSize: '0.85em', color: '#FFFEFF', opacity: 0.6 }}>
+                    Offset: (thickness - 2") / 2 = {(wallThickness - 2) / 2}"
                   </div>
-                </div>
-                
-                <div style={{ marginTop: '15px' }}>
-                  <label style={{ display: 'block', marginBottom: '5px' }}>
-                    Layer Height (inches):
-                  </label>
-                  <input
-                    type="number"
-                    value={layerHeight}
-                    onChange={(e) => setLayerHeight(parseFloat(e.target.value) || 0.2)}
-                    min="0.01"
-                    max="1"
-                    step="0.01"
-                    style={{ width: '100px', padding: '5px' }}
-                  />
-                  <span style={{ marginLeft: '8px', fontSize: '0.9em', color: '#FFFEFF', opacity: 0.6 }}>
-                    Default: 0.2"
-                  </span>
                 </div>
                 
                 <div style={{ marginTop: '10px' }}>
@@ -208,8 +228,12 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
                   </label>
                   <input
                     type="number"
-                    value={wallHeight}
-                    onChange={(e) => setWallHeight(parseFloat(e.target.value) || 120)}
+                    value={displayWallHeight}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value) || 120
+                      setDisplayWallHeight(value)
+                      debouncedSetWallHeight(value)
+                    }}
                     min="1"
                     max="200"
                     step="1"
@@ -219,25 +243,7 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
                     Default: 120" (10ft)
                   </span>
                   <div style={{ marginTop: '5px', fontSize: '0.85em', color: '#FFFEFF', opacity: 0.6 }}>
-                    Number of layers: {Math.ceil(wallHeight / layerHeight)} layers
-                  </div>
-                </div>
-                
-                <div style={{ marginTop: '15px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={previewMode}
-                      onChange={(e) => setPreviewMode(e.target.checked)}
-                      style={{ marginRight: '8px' }}
-                    />
-                    <span>Preview Mode (faster, fewer layers)</span>
-                  </label>
-                  <div style={{ marginLeft: '24px', marginTop: '5px', fontSize: '0.85em', color: '#FFFEFF', opacity: 0.6 }}>
-                    {previewMode 
-                      ? `Preview: ${Math.ceil(wallHeight / (layerHeight * 10))} layers (10x layer height for performance)`
-                      : `Full detail: ${Math.ceil(wallHeight / layerHeight)} layers`
-                    }
+                    Number of layers: {Math.ceil(displayWallHeight / (layerHeight * 10))} layers (preview mode)
                   </div>
                 </div>
               </div>
@@ -270,11 +276,10 @@ function ControlPanel({ onPathChange, error, onOffsetPathChange }) {
         <div className="info-section">
           <h4>Instructions</h4>
           <ul>
-            <li><strong>Default Profile:</strong> Using bead profile (2" wide × 1" tall, rounded rectangle)</li>
             <li><strong>Path File:</strong> 2D or 3D DXF file with path geometry (will be converted to 3D if 2D)</li>
             <li><strong>Supported DXF Entities:</strong> Lines, Polylines, Arcs, Circles, Splines, Curves</li>
             <li><strong>File Formats:</strong> DXF (.dxf) or JSON (for testing)</li>
-            <li>The profile will be oriented perpendicular to the path at each point</li>
+            <li>The default profile will be oriented perpendicular to the path at each point</li>
             <li>Errors will be shown if geometry cannot be lofted</li>
           </ul>
         </div>

@@ -120,7 +120,7 @@ const toolpaths = generateToolpath(layers);
 const gcode = generateGCode(toolpaths, {
   printFeedRate: 1200,
   travelFeedRate: 3000,
-  layerHeight: 0.2
+  layerHeight: 1
 });
 ```
 

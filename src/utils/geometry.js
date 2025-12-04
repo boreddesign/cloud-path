@@ -1,20 +1,47 @@
 import * as THREE from 'three'
+import { segmentsToPoints } from './cadParser'
 
 /**
- * Validates a 2D profile (array of points)
+ * Checks if data is in segment format
+ */
+function isSegmentFormat(data) {
+  return Array.isArray(data) && 
+         data.length > 0 && 
+         typeof data[0] === 'object' && 
+         data[0] !== null && 
+         'type' in data[0] &&
+         'start' in data[0] &&
+         'end' in data[0]
+}
+
+/**
+ * Converts segments to points if needed, otherwise returns points as-is
+ */
+function ensurePoints(geometry, expectedType) {
+  if (isSegmentFormat(geometry)) {
+    return segmentsToPoints(geometry, expectedType)
+  }
+  return geometry
+}
+
+/**
+ * Validates a 2D profile (array of points or segments)
  */
 export function validateProfile(profile) {
   if (!profile || !Array.isArray(profile)) {
-    throw new Error('Profile must be an array of points')
+    throw new Error('Profile must be an array of points or segments')
   }
   
-  if (profile.length < 3) {
+  // Convert segments to points if needed
+  const points = ensurePoints(profile, 'profile')
+  
+  if (points.length < 3) {
     throw new Error('Profile must have at least 3 points to form a closed shape')
   }
 
   // Check if profile is closed (first and last points should be the same)
-  const first = profile[0]
-  const last = profile[profile.length - 1]
+  const first = points[0]
+  const last = points[points.length - 1]
   const isClosed = Math.abs(first[0] - last[0]) < 0.001 && 
                    Math.abs(first[1] - last[1]) < 0.001
 
@@ -24,9 +51,9 @@ export function validateProfile(profile) {
 
   // Check for self-intersections (properly handle closed profiles)
   const tolerance = 0.001
-  // For closed profiles, we have profile.length points where last = first
-  // So we have profile.length - 1 actual segments (the last one closes back)
-  const numSegments = profile.length - 1
+  // For closed profiles, we have points.length points where last = first
+  // So we have points.length - 1 actual segments (the last one closes back)
+  const numSegments = points.length - 1
   
   for (let i = 0; i < numSegments; i++) {
     for (let j = i + 2; j < numSegments; j++) {
@@ -35,10 +62,10 @@ export function validateProfile(profile) {
       // and first segment (i = 0) with last segment (j = numSegments-1)
       if (i === 0 && j === numSegments - 1) continue
       
-      const p1 = profile[i]
-      const p2 = profile[i + 1]
-      const p3 = profile[j]
-      const p4 = profile[j + 1]
+      const p1 = points[i]
+      const p2 = points[i + 1]
+      const p3 = points[j]
+      const p4 = points[j + 1]
       
       // Only check for actual crossings in interior (not at endpoints)
       if (segmentsCrossInterior(p1, p2, p3, p4, tolerance)) {
@@ -51,20 +78,23 @@ export function validateProfile(profile) {
 }
 
 /**
- * Validates a path (array of 3D points)
+ * Validates a path (array of 3D points or segments)
  */
 export function validatePath(path) {
   if (!path || !Array.isArray(path)) {
-    throw new Error('Path must be an array of 3D points')
+    throw new Error('Path must be an array of 3D points or segments')
   }
   
-  if (path.length < 2) {
+  // Convert segments to points if needed
+  const points = ensurePoints(path, 'path')
+  
+  if (points.length < 2) {
     throw new Error('Path must have at least 2 points')
   }
 
   // Check for duplicate consecutive points
-  for (let i = 0; i < path.length - 1; i++) {
-    const dist = distance3D(path[i], path[i + 1])
+  for (let i = 0; i < points.length - 1; i++) {
+    const dist = distance3D(points[i], points[i + 1])
     if (dist < 0.001) {
       throw new Error('Path contains duplicate consecutive points')
     }
@@ -72,15 +102,15 @@ export function validatePath(path) {
 
   // Check for self-intersections (paths can be open or closed)
   const tolerance = 0.001
-  const first = path[0]
-  const last = path[path.length - 1]
-  const isClosed = path.length > 2 && 
+  const first = points[0]
+  const last = points[points.length - 1]
+  const isClosed = points.length > 2 && 
     Math.abs(last[0] - first[0]) < tolerance && 
     Math.abs(last[1] - first[1]) < tolerance &&
     Math.abs((last[2] || 0) - (first[2] || 0)) < tolerance
   
   // Number of segments to check (exclude closing segment if closed)
-  const numSegments = isClosed ? path.length - 1 : path.length - 1
+  const numSegments = isClosed ? points.length - 1 : points.length - 1
   
   for (let i = 0; i < numSegments; i++) {
     for (let j = i + 2; j < numSegments; j++) {
@@ -97,10 +127,10 @@ export function validatePath(path) {
         }
       }
       
-      const p1 = path[i]
-      const p2 = path[i + 1]
-      const p3 = path[j]
-      const p4 = path[j + 1]
+      const p1 = points[i]
+      const p2 = points[i + 1]
+      const p3 = points[j]
+      const p4 = points[j + 1]
       
       // Check for 2D projection intersection (ignore Z for intersection check)
       if (segmentsCrossInterior2D(p1, p2, p3, p4, tolerance)) {
@@ -226,23 +256,42 @@ function getPathFrame(path, index, up = new THREE.Vector3(0, 0, 1)) {
 
 /**
  * Performs lofting operation: extrudes a 2D profile along a 3D path
+ * Accepts segments or points for both profile and path
  * Returns a Three.js BufferGeometry
  */
 export function loftGeometry(profile, path) {
+  console.log('[loftGeometry] Input:', {
+    profileLength: profile?.length,
+    profileType: Array.isArray(profile) && profile.length > 0 ? (typeof profile[0] === 'object' && 'type' in profile[0] ? 'segments' : 'points') : 'unknown',
+    pathLength: path?.length,
+    pathType: Array.isArray(path) && path.length > 0 ? (typeof path[0] === 'object' && 'type' in path[0] ? 'segments' : 'points') : 'unknown'
+  })
+  
+  // Convert segments to points if needed
+  const profilePoints = ensurePoints(profile, 'profile')
+  const pathPoints = ensurePoints(path, 'path')
+  
+  console.log('[loftGeometry] After conversion:', {
+    profilePointsLength: profilePoints?.length,
+    pathPointsLength: pathPoints?.length
+  })
+  
   // Validate inputs
-  validateProfile(profile)
-  validatePath(path)
+  validateProfile(profilePoints)
+  validatePath(pathPoints)
 
   // Convert 2D profile to 3D (assuming profile is in XY plane, z=0)
-  const profile3D = profile.map(p => [p[0], p[1], 0])
+  const profile3D = profilePoints.map(p => [p[0], p[1], 0])
+  
+  console.log('[loftGeometry] Profile3D length:', profile3D.length, 'Path points length:', pathPoints.length)
 
   const vertices = []
   const indices = []
   const normals = []
 
   // Generate vertices by transforming profile along path
-  for (let i = 0; i < path.length; i++) {
-    const { matrix, normal } = getPathFrame(path, i)
+  for (let i = 0; i < pathPoints.length; i++) {
+    const { matrix, normal } = getPathFrame(pathPoints, i)
     
     // Transform each profile point
     for (const profilePoint of profile3D) {
@@ -258,7 +307,7 @@ export function loftGeometry(profile, path) {
 
   // Generate faces (triangles)
   const profilePointCount = profile3D.length
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < pathPoints.length - 1; i++) {
     const baseIndex = i * profilePointCount
     const nextBaseIndex = (i + 1) * profilePointCount
 

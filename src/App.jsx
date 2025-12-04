@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Scene3D from './components/Scene3D'
 import ControlPanel from './components/ControlPanel'
 import profileBead from './profile-bead.json'
+import { validateProfile } from './utils/geometry'
 import './App.css'
 
 function App() {
@@ -15,28 +16,37 @@ function App() {
   // Load default profile on mount
   useEffect(() => {
     try {
-      // Load the default bead profile
-      setProfile(profileBead)
+      // Validate profile (handles both segments and points)
+      validateProfile(profileBead)
+      setProfile(profileBead) // Store segments or points as-is
     } catch (error) {
       console.error('Failed to load default profile:', error)
-      setError('Failed to load default profile')
+      setError(`Failed to load default profile: ${error.message}`)
     }
   }, [])
 
   const handlePathChange = (newPath) => {
+    console.log('[App] handlePathChange called with path length:', newPath?.length)
     setPath(newPath)
     setOffsetCurves(null) // Clear offset when using regular path
     setOriginalPath(null)
     setError(null)
+    console.log('[App] State updated')
   }
 
   const handleOffsetPathChange = (newOffsetCurves, originalPathForDisplay, layerConfig) => {
+    console.log('[App] handleOffsetPathChange called:', {
+      offsetCurves: newOffsetCurves?.length,
+      originalPathLength: originalPathForDisplay?.length,
+      layerConfig
+    })
     setOffsetCurves(newOffsetCurves) // Array of offset curves to loft
     setOriginalPath(originalPathForDisplay) // Store original for lofting and visualization
     setPath(null) // Clear regular path when using offset
     setError(null)
     // Store layer config for stacking
-    setLayerConfig(layerConfig || { layerHeight: 0.2, wallHeight: 120, previewMode: true })
+    setLayerConfig(layerConfig || { layerHeight: 1, wallHeight: 120, previewMode: true })
+    console.log('[App] State updated')
   }
 
   const handleError = (errorMessage) => {

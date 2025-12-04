@@ -1,8 +1,16 @@
 """
 Rhino to JSON Converter for CAD Loft Visualizer
 
-This script exports Rhino geometry (curves, polylines) to JSON format
-for use with the CAD Loft Visualizer.
+This script exports Rhino geometry (curves, polylines, arcs, circles) to JSON format
+with start/end points, geometry type, and arc/circle properties for accurate geometry sampling.
+
+Exported Properties:
+- type: line, arc, circle, polyline, curve
+- start, end: endpoint coordinates [x, y] or [x, y, z]
+- center (arcs/circles): center point coordinates
+- radius (arcs/circles): radius value
+- clockwise (arcs/circles): direction of arc/circle
+- closed: whether the curve is closed
 
 Usage in Rhino:
 1. Open this script in Rhino's Python editor
@@ -18,234 +26,151 @@ Requirements:
 
 import rhinoscriptsyntax as rs
 import json
-import os
 import math
 
-def curve_to_points(curve_id, is_profile=False, num_points=None):
+def point_to_array(point, is_profile=False):
     """
-    Convert a Rhino curve to a list of points
+    Convert a Rhino point to array format
+    
+    Args:
+        point: Rhino point (list or tuple)
+        is_profile: If True, returns 2D [x, y]. If False, returns 3D [x, y, z]
+    
+    Returns:
+        Point as [x, y] or [x, y, z]
+    """
+    if is_profile:
+        return [float(point[0]), float(point[1])]
+    else:
+        z = float(point[2]) if len(point) > 2 else 0.0
+        return [float(point[0]), float(point[1]), z]
+
+
+def get_curve_endpoints(curve_id):
+    """
+    Get start and end points of a curve
     
     Args:
         curve_id: Rhino object ID of the curve
-        is_profile: If True, returns 2D points [x, y]. If False, returns 3D points [x, y, z]
-        num_points: Number of points to sample (None = use curve's natural points)
     
     Returns:
-        List of points as [x, y] or [x, y, z]
-    """
-    points = []
-    
-    # Get curve domain
-    domain = rs.CurveDomain(curve_id)
-    if domain is None:
-        return None
-    
-    # Determine number of points
-    if num_points is None:
-        # Use curve length to determine appropriate number of points
-        length = rs.CurveLength(curve_id)
-        num_points = max(20, int(length * 10))  # At least 20 points, or 10 per unit
-    
-    # Sample points along the curve
-    for i in range(num_points + 1):
-        t = domain[0] + (domain[1] - domain[0]) * (i / num_points)
-        point = rs.EvaluateCurve(curve_id, t)
-        
-        if point:
-            if is_profile:
-                # For profiles, use only X and Y (ignore Z)
-                points.append([point[0], point[1]])
-            else:
-                # For paths, use X, Y, Z
-                points.append([point[0], point[1], point[2] if len(point) > 2 else 0.0])
-    
-    return points
-
-
-def polyline_to_points(polyline_id, is_profile=False):
-    """
-    Convert a Rhino polyline to a list of points
-    
-    Args:
-        polyline_id: Rhino object ID of the polyline
-        is_profile: If True, returns 2D points [x, y]. If False, returns 3D points [x, y, z]
-    
-    Returns:
-        List of points as [x, y] or [x, y, z]
-    """
-    points = []
-    vertices = rs.PolylineVertices(polyline_id)
-    
-    if not vertices:
-        return None
-    
-    for vertex in vertices:
-        if is_profile:
-            points.append([vertex[0], vertex[1]])
-        else:
-            points.append([vertex[0], vertex[1], vertex[2] if len(vertex) > 2 else 0.0])
-    
-    # Check if polyline is closed
-    if rs.IsCurveClosed(polyline_id):
-        # Add first point at end to ensure it's closed
-        if points and points[0] != points[-1]:
-            points.append(points[0])
-    
-    return points
-
-
-def arc_to_points(arc_id, is_profile=False, num_points=32):
-    """
-    Convert a Rhino arc to a list of points
-    
-    Args:
-        arc_id: Rhino object ID of the arc
-        is_profile: If True, returns 2D points [x, y]. If False, returns 3D points [x, y, z]
-        num_points: Number of points to sample along the arc
-    
-    Returns:
-        List of points as [x, y] or [x, y, z]
-    """
-    # For arcs, treat them as curves and sample points along them
-    # This is more reliable than trying to extract angle information
-    domain = rs.CurveDomain(arc_id)
-    if domain is None:
-        return None
-    
-    points = []
-    
-    # Sample points along the arc curve
-    for i in range(num_points + 1):
-        t = domain[0] + (domain[1] - domain[0]) * (i / num_points)
-        point = rs.EvaluateCurve(arc_id, t)
-        
-        if point:
-            if is_profile:
-                points.append([point[0], point[1]])
-            else:
-                points.append([point[0], point[1], point[2] if len(point) > 2 else 0.0])
-    
-    return points
-
-
-def circle_to_points(circle_id, is_profile=False, num_points=32):
-    """
-    Convert a Rhino circle to a list of points
-    
-    Args:
-        circle_id: Rhino object ID of the circle
-        is_profile: If True, returns 2D points [x, y]. If False, returns 3D points [x, y, z]
-        num_points: Number of points to sample along the circle
-    
-    Returns:
-        List of points as [x, y] or [x, y, z]
-    """
-    # For circles, treat them as curves and sample points along them
-    # This is more reliable than trying to extract plane information
-    domain = rs.CurveDomain(circle_id)
-    if domain is None:
-        return None
-    
-    points = []
-    
-    # Sample points around the circle curve
-    for i in range(num_points + 1):
-        t = domain[0] + (domain[1] - domain[0]) * (i / num_points)
-        point = rs.EvaluateCurve(circle_id, t)
-        
-        if point:
-            if is_profile:
-                points.append([point[0], point[1]])
-            else:
-                points.append([point[0], point[1], point[2] if len(point) > 2 else 0.0])
-    
-    return points
-
-
-def convert_circle_to_arcs(circle_id):
-    """
-    Convert a circle to arcs by breaking it into segments
-    This makes circles easier to process
-    
-    Args:
-        circle_id: Rhino object ID of the circle
-    
-    Returns:
-        List of curve object IDs (arcs or polyline segments), or original circle if conversion fails
+        Tuple of (start_point, end_point) or None if failed
     """
     try:
-        # Method 1: Try to explode the circle into arcs
-        # Some Rhino versions allow exploding circles into arcs
-        exploded = rs.ExplodeCurves(circle_id, delete_input=False)
-        if exploded and len(exploded) > 0:
-            return exploded
+        domain = rs.CurveDomain(curve_id)
+        if domain is None:
+            return None
         
-        # Method 2: Convert circle to polyline (approximates with line segments)
-        # This breaks the circle into many small segments
-        try:
-            polyline = rs.ConvertCurveToPolyline(circle_id, angle_tolerance=5.0, tolerance=0.01, min_edge_count=16, max_edge_count=64)
-            if polyline:
-                return [polyline]
-        except:
-            pass
+        start_point = rs.EvaluateCurve(curve_id, domain[0])
+        end_point = rs.EvaluateCurve(curve_id, domain[1])
         
-        # Method 3: Fallback - just treat as a curve and sample it
-        # This will work but won't create explicit arcs
-        return [circle_id]
+        if start_point and end_point:
+            return (start_point, end_point)
     except:
-        # If all methods fail, return the original circle
-        return [circle_id]
+        pass
+    
+    return None
 
 
-def geometry_to_points(obj_id, is_profile=False):
+def geometry_to_segment(obj_id, is_profile=False):
     """
-    Convert any Rhino geometry to points based on its type
+    Convert a Rhino geometry object to a segment with type and endpoints
     
     Args:
         obj_id: Rhino object ID
-        is_profile: If True, returns 2D points. If False, returns 3D points
+        is_profile: If True, uses 2D points. If False, uses 3D points
     
     Returns:
-        List of points
+        Dictionary with 'type', 'start', 'end', and optionally 'center', 'radius', 'clockwise', 'closed'
     """
     obj_type = rs.ObjectType(obj_id)
     
-    if obj_type == rs.filter.curve:
-        # Check if it's a circle - convert to arcs/polyline first
-        if rs.IsCircle(obj_id):
-            # Convert circle to arcs or polyline segments
-            converted = convert_circle_to_arcs(obj_id)
-            if converted and len(converted) > 0:
-                # Process the converted geometry
-                all_points = []
-                for conv_id in converted:
-                    # Check what type the converted object is
-                    if rs.IsPolyline(conv_id):
-                        points = polyline_to_points(conv_id, is_profile)
-                    elif rs.IsArc(conv_id):
-                        points = arc_to_points(conv_id, is_profile)
-                    else:
-                        points = curve_to_points(conv_id, is_profile)
-                    
-                    if points:
-                        all_points.extend(points)
-                
-                return all_points if all_points else None
-            else:
-                # Fallback to treating as curve
-                return curve_to_points(obj_id, is_profile)
-        # Check if it's a polyline
-        elif rs.IsPolyline(obj_id):
-            return polyline_to_points(obj_id, is_profile)
-        # Check if it's an arc
-        elif rs.IsArc(obj_id):
-            return arc_to_points(obj_id, is_profile)
-        # Otherwise, treat as general curve
-        else:
-            return curve_to_points(obj_id, is_profile)
-    else:
-        rs.MessageBox("Selected object is not a curve, polyline, arc, or circle.", 0, "Error")
+    if obj_type != rs.filter.curve:
         return None
+    
+    segment = {}
+    
+    # Determine geometry type
+    if rs.IsLine(obj_id):
+        segment['type'] = 'line'
+    elif rs.IsArc(obj_id):
+        segment['type'] = 'arc'
+        # Extract arc properties for accurate arc sampling
+        try:
+            arc_center = rs.ArcCenterPoint(obj_id)
+            arc_radius = rs.ArcRadius(obj_id)
+            
+            if arc_center and arc_radius:
+                segment['center'] = point_to_array(arc_center, is_profile)
+                segment['radius'] = float(arc_radius)
+                
+                # Determine arc direction (clockwise or counterclockwise)
+                # Get arc plane to determine direction
+                arc_plane = rs.ArcPlane(obj_id)
+                if arc_plane:
+                    # Check if arc normal points up (counterclockwise) or down (clockwise)
+                    # For 2D profiles, check Z component of normal
+                    normal = arc_plane[3]  # Normal vector is the 4th element of plane
+                    if is_profile:
+                        # For profiles in XY plane, Z > 0 means counterclockwise
+                        segment['clockwise'] = (normal[2] < 0)
+                    else:
+                        # For 3D paths, use the same logic
+                        segment['clockwise'] = (normal[2] < 0)
+        except:
+            # If arc properties fail, continue without them
+            # Fallback will handle it
+            pass
+    elif rs.IsCircle(obj_id):
+        segment['type'] = 'circle'
+        segment['closed'] = True
+        # Extract circle properties
+        try:
+            circle_center = rs.CircleCenterPoint(obj_id)
+            circle_radius = rs.CircleRadius(obj_id)
+            
+            if circle_center and circle_radius:
+                segment['center'] = point_to_array(circle_center, is_profile)
+                segment['radius'] = float(circle_radius)
+                
+                # Determine circle direction
+                circle_plane = rs.CirclePlane(obj_id)
+                if circle_plane:
+                    normal = circle_plane[3]
+                    if is_profile:
+                        segment['clockwise'] = (normal[2] < 0)
+                    else:
+                        segment['clockwise'] = (normal[2] < 0)
+        except:
+            # If circle properties fail, continue without them
+            pass
+    elif rs.IsPolyline(obj_id):
+        segment['type'] = 'polyline'
+        # For polylines, get first and last vertices
+        vertices = rs.PolylineVertices(obj_id)
+        if vertices and len(vertices) >= 2:
+            segment['start'] = point_to_array(vertices[0], is_profile)
+            segment['end'] = point_to_array(vertices[-1], is_profile)
+            if rs.IsCurveClosed(obj_id):
+                segment['closed'] = True
+            return segment
+    else:
+        # Generic curve
+        segment['type'] = 'curve'
+    
+    # Get start and end points
+    endpoints = get_curve_endpoints(obj_id)
+    if endpoints:
+        segment['start'] = point_to_array(endpoints[0], is_profile)
+        segment['end'] = point_to_array(endpoints[1], is_profile)
+        
+        # Check if closed
+        if rs.IsCurveClosed(obj_id):
+            segment['closed'] = True
+        
+        return segment
+    
+    return None
 
 
 def export_to_json():
@@ -269,45 +194,19 @@ def export_to_json():
     
     is_profile = (result == "PROFILE")
     
-    # Collect points from all selected objects
-    all_points = []
+    # Collect segments from all selected objects
+    segments = []
     
     for obj_id in obj_ids:
-        points = geometry_to_points(obj_id, is_profile)
-        if points:
-            all_points.extend(points)
+        segment = geometry_to_segment(obj_id, is_profile)
+        if segment:
+            segments.append(segment)
         else:
-            rs.MessageBox("Failed to extract points from object {}".format(obj_id), 0, "Warning")
+            rs.MessageBox("Failed to extract geometry from object {}".format(obj_id), 0, "Warning")
     
-    if not all_points:
-        rs.MessageBox("No points extracted from selected geometry.", 0, "Error")
+    if not segments:
+        rs.MessageBox("No geometry extracted from selected objects.", 0, "Error")
         return
-    
-    # Remove duplicate consecutive points
-    cleaned_points = [all_points[0]]
-    tolerance = 0.001
-    
-    for i in range(1, len(all_points)):
-        prev = cleaned_points[-1]
-        curr = all_points[i]
-        
-        if is_profile:
-            dist = math.sqrt((curr[0] - prev[0])**2 + (curr[1] - prev[1])**2)
-        else:
-            dist = math.sqrt((curr[0] - prev[0])**2 + (curr[1] - prev[1])**2 + 
-                            ((curr[2] if len(curr) > 2 else 0) - (prev[2] if len(prev) > 2 else 0))**2)
-        
-        if dist > tolerance:
-            cleaned_points.append(curr)
-    
-    # For profiles, ensure it's closed
-    if is_profile and len(cleaned_points) > 2:
-        first = cleaned_points[0]
-        last = cleaned_points[-1]
-        dist = math.sqrt((last[0] - first[0])**2 + (last[1] - first[1])**2)
-        
-        if dist > tolerance:
-            cleaned_points.append(first)
     
     # Get file path to save
     default_name = "profile.json" if is_profile else "path.json"
@@ -319,12 +218,12 @@ def export_to_json():
     # Write JSON file
     try:
         with open(file_path, 'w') as f:
-            json.dump(cleaned_points, f, indent=2)
+            json.dump(segments, f, indent=2)
         
-        rs.MessageBox("Successfully exported {} points to:\n{}".format(len(cleaned_points), file_path), 
+        rs.MessageBox("Successfully exported {} segments to:\n{}".format(len(segments), file_path), 
                      0, "Export Complete")
         
-        print("Exported {} points to {}".format(len(cleaned_points), file_path))
+        print("Exported {} segments to {}".format(len(segments), file_path))
         print("Type: {}".format("Profile (2D)" if is_profile else "Path (2D/3D)"))
         
     except Exception as e:
